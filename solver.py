@@ -1,8 +1,9 @@
 import sys
 import requests
 import numpy as np
+import json
 from argparse import ArgumentParser
-from navigator import MazeNavigator
+from navigator import MazeNavigator, SimNavigator
 
 
 def print_map(level_map):
@@ -15,94 +16,192 @@ def print_map(level_map):
     print('-' * (level_map.shape[1] + 2))
 
 
+def replay_path(nav, path, level):
+    for point in path:
+        if nav.level() != level:
+            return
+        x, y = nav.pos(cached=True)
+        if x < point[0]:
+            nav.right()
+        elif x > point[0]:
+            nav.left()
+        elif y < point[1]:
+            nav.down()
+        elif y > point[1]:
+            nav.up()
+
+
 def solve_maze(nav, verbose=False, visual=False):
     if verbose:
         print('Solving Maze!')
-    seen = set()
-    path = []
-    level = 0
+
+    # initialize level params
     xmax, ymax = nav.size()
+    level = nav.level(cached=True)
+    old_level = level
+    level_maps = [None for _ in range(nav.levels(cached=True))]
+    solutions = [None for _ in range(nav.levels(cached=True))]
     level_map = np.full((ymax, xmax), ' ')
-    while not nav.done():
-        if nav.level(cached=True) > level:
+    path = []
+
+    x, y = nav.pos(cached=True)
+    done = False
+    while not done:
+        if old_level != level:
+            # moved on to the next level
             if verbose:
                 print('Level {} Complete! Going on to Level {}'.format(
-                    level, nav.level(cached=True)))
-            seen = set()
-            path = []
+                    old_level, level))
+
+            # Save solved level
+            level_maps[old_level] = level_map
+            solutions[old_level] = path
+
+            # get new level info
             xmax, ymax = nav.size()
+            if xmax is None:
+                # Maze finished
+                break
+            x, y = nav.pos(cached=True)
+
             level_map = np.full((ymax, xmax), ' ')
-            level = nav.level(cached=True)
-        x, y = nav.pos(cached=True)
-        seen.add((x, y))
+            path = []
+            old_level = level
+
+        # mark as seen
+        level_map[y, x] = '.'
+
         if visual:
-            level_map[y, x] = '.'
             print_map(level_map)
             print('Current Pos: {}, on Board Size {}, Level {}'.format(
                 (x, y), (xmax, ymax), level))
-
         if verbose:
-            print('Currently: {}, on Board Size {}, Level {}, Seen: {}'.format(
-                (x, y), (xmax, ymax), level, seen))
-        if x > 0 and (x - 1, y) not in seen:
+            print('Currently: {}, on Board Size {}, Level {}'.format(
+                (x, y), (xmax, ymax), level))
+
+        if x > 0 and level_map[y, x - 1] == ' ':
             if verbose:
                 print('Checking left!')
-            if nav.left():
-                path.append((x, y))
+            result = nav.left()
+            if result == 'END':
+                level += 1
                 continue
-            seen.add((x - 1, y))  # Don't recheck walls
-            if visual:
+            elif result == 'SUCCESS':
+                path.append((x, y))
+                x -= 1
+                continue
+            elif result == 'EXPIRED':
+                done = True
+                continue
+            else:
+                # Found a wall
                 level_map[y, x - 1] = '*'
-        if y > 0 and (x, y - 1) not in seen:
+        if y > 0 and level_map[y - 1, x] == ' ':
             if verbose:
                 print('Checking up!')
-            if nav.up():
-                path.append((x, y))
+            result = nav.up()
+            if result == 'END':
+                level += 1
                 continue
-            seen.add((x, y - 1))  # Don't recheck walls
-            if visual:
+            elif result == 'SUCCESS':
+                path.append((x, y))
+                y -= 1
+                continue
+            elif result == 'EXPIRED':
+                done = True
+                continue
+            else:
+                # Found a wall
                 level_map[y - 1, x] = '*'
-        if x < xmax - 1 and (x + 1, y) not in seen:
+        if x < xmax - 1 and level_map[y, x + 1] == ' ':
             if verbose:
                 print('Checking right!')
-            if nav.right():
-                path.append((x, y))
+            result = nav.right()
+            if result == 'END':
+                level += 1
                 continue
-            seen.add((x + 1, y))  # Don't recheck walls
-            if visual:
+            elif result == 'SUCCESS':
+                path.append((x, y))
+                x += 1
+                continue
+            elif result == 'EXPIRED':
+                done = True
+                continue
+            else:
+                # Found a wall
                 level_map[y, x + 1] = '*'
-        if y < ymax - 1 and (x, y + 1) not in seen:
+        if y < ymax - 1 and level_map[y + 1, x] == ' ':
             if verbose:
                 print('Checking down!')
-            if nav.down():
-                path.append((x, y))
+            result = nav.down()
+            if result == 'END':
+                level += 1
                 continue
-            seen.add((x, y + 1))  # Don't recheck walls
-            if visual:
+            elif result == 'SUCCESS':
+                path.append((x, y))
+                y += 1
+                continue
+            elif result == 'EXPIRED':
+                done = True
+                continue
+            else:
+                # Found a wall
                 level_map[y + 1, x] = '*'
 
-        # back track
+        # If there is no where to go, back track
         prev = path.pop()
         if verbose:
             print('Back tracking to: {}'.format(prev))
         if x < prev[0]:
-            nav.right()
+            if nav.right() == 'EXPIRED':
+                done = True
+            else:
+                x += 1
         elif x > prev[0]:
-            nav.left()
+            if nav.left() == 'EXPIRED':
+                done = True
+            else:
+                x -= 1
         elif y < prev[1]:
-            nav.down()
+            if nav.down() == 'EXPIRED':
+                done = True
+            else:
+                y += 1
         elif y > prev[1]:
-            nav.up()
+            if nav.up() == 'EXPIRED':
+                done = True
+            else:
+                y -= 1
+
+    return (level_maps, solutions)
 
 
 if __name__ == '__main__':
 
     parser = ArgumentParser()
     parser.add_argument('action', choices=('token', 'solve', 'status', 'sim'))
-    parser.add_argument('--uid')
-    parser.add_argument('--token')
-    parser.add_argument('--verbose', action='store_true')
-    parser.add_argument('--visual', action='store_true')
+    parser.add_argument(
+        '--uid',
+        help='UID to retrieve a new token; mutually exclusive with "--token"')
+    parser.add_argument(
+        '--token',
+        help='token to use while playing; mutually exclusive with "--uid"')
+    parser.add_argument(
+        '--sol-save-to',
+        default='solutions.json',
+        help='file to save solutions to')
+    parser.add_argument(
+        '--level-save-to',
+        default='levels.json',
+        help='file to save solutions to')
+    parser.add_argument(
+        '--verbose',
+        action='store_true',
+        help='print debugging info while running')
+    parser.add_argument(
+        '--visual',
+        action='store_true',
+        help='show a live-updating map of the level')
     args = parser.parse_args()
 
     # get a token
@@ -125,6 +224,15 @@ if __name__ == '__main__':
         navigator.update_info()
         print(navigator.info)
     if args.action == 'solve':
-        solve_maze(navigator, args.verbose, args.visual)
+        levels, solutions = solve_maze(navigator, args.verbose, args.visual)
+        with open(args.level_save_to, 'w') as f:
+            i = 0
+            for l in levels:
+                if l is not None:
+                    levels[i] = l.tolist()
+                i += 1
+            json.dump(levels, f)
+        with open(args.sol_save_to, 'w') as f:
+            json.dump(solutions, f)
     elif args.action == 'sim':
-        pass  # TODO simulate
+        solve_maze(SimNavigator(), args.verbose, args.visual)

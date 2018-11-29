@@ -6,7 +6,7 @@ class MazeNavigator:
         self.token = token
 
     def update_info(self):
-        print('Getting info...')
+        # print('Getting info...')
         self.info = requests.get(
             'http://ec2-34-216-8-43.us-west-2.compute.amazonaws.com/game',
             params={
@@ -29,6 +29,9 @@ class MazeNavigator:
     def level(self, cached=False):
         return self.info_item('levels_completed', cached=cached)
 
+    def levels(self, cached=False):
+        return self.info_item('total_levels', cached=cached)
+
     def done(self, cached=False):
         status = self.info_item('status', cached=cached)
         if status != 'PLAYING':
@@ -37,7 +40,7 @@ class MazeNavigator:
             return False
 
     def move(self, direction):
-        result = requests.post(
+        return requests.post(
             'http://ec2-34-216-8-43.us-west-2.compute.amazonaws.com/game',
             params={
                 'token': self.token
@@ -45,10 +48,6 @@ class MazeNavigator:
             data={
                 'action': direction
             }).json()['result']
-        if result == 'SUCCESS' or result == 'END':
-            return True
-        else:
-            return False
 
     def up(self):
         return self.move('UP')
@@ -63,15 +62,48 @@ class MazeNavigator:
         return self.move('RIGHT')
 
 
-class MazeSimulator:
+class SimNavigator:
     MAZE = [
         "S**  *   ", "  * *  * ", " ** ** * ", "     *E* ", " *** *** ",
         "*      * ", "  **** * ", " *   *** ", "   *     "
     ]
 
-    def get_info(self):
-        return {
-            'maze_size': [len(self.MAZE[0]), len(self.MAZE)],
-            'current_location': [0, 0],
-            'status': 'PLAYING'
-        }
+    def __init__(self):
+        self.pos_stat = [0, 0]
+        self.done_stat = False
+
+    def size(self, cached=False):
+        return [9, 9]
+
+    def pos(self, cached=False):
+        return self.pos_stat
+
+    def level(self, cached=False):
+        return 0
+
+    def done(self, cached=False):
+        return self.done_stat
+
+    def up(self):
+        self.pos_stat[1] -= 1
+        if self.MAZE[self.pos_stat[1]][self.pos_stat[0]] == 'E':
+            self.done_stat = True
+        return self.MAZE[self.pos_stat[1]][self.pos_stat[0]] != '*'
+
+    def down(self):
+        self.pos_stat[1] += 1
+        if self.MAZE[self.pos_stat[1]][self.pos_stat[0]] == 'E':
+            self.done_stat = True
+        return self.MAZE[self.pos_stat[1]][self.pos_stat[0]] != '*'
+
+    def left(self):
+        self.pos_stat[0] -= 1
+        if self.MAZE[self.pos_stat[1]][self.pos_stat[0]] == 'E':
+            self.done_stat = True
+        return self.MAZE[self.pos_stat[1]][self.pos_stat[0]] != '*'
+
+    def right(self):
+        self.pos_stat[0] += 1
+        if self.MAZE[self.pos_stat[1]][self.pos_stat[0]] == 'E':
+            self.done_stat = True
+        return self.MAZE[self.pos_stat[1]][self.pos_stat[0]] != '*'
